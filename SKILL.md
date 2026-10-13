@@ -149,7 +149,8 @@ For each pick, in order, with no questions in between:
 
 Captions: write `$W/<id>/blocks.txt` by hand from `words_cut.json` (see "Caption blocks" below). Use their saved
 fonts (`~/.config/long-to-shorts/settings.json`) or the defaults; don't ask about fonts during a batch. `reframe.py` wrote `$W/<id>/bands.json`, so every block sits in the band of the shot it starts in:
-lower third on face shots, just above the seam with a dark backdrop on split shots, the top on full-frame shots.
+lower third on face shots, centred on the seam between screen and face on split shots, the top on full-frame
+shots.
 Keep a block inside one shot (start a new block at a framing change) so it never sits in the wrong band.
 ```bash
 FPS=<fps> "$PY" "$SK/scripts/captions.py" "$W/<id>" list
@@ -193,16 +194,22 @@ one pick: change its range, layout or blocks and rebuild only that one.
 ```
 style | display text (the CLEAN wording) | number of spoken words it covers | optional logo
 ```
-- `s` small white words, `h` bold hero (names: products, models, people), `c` script hero (the emotional or
-  payoff word: Sucks, Slow, Life). **One hero per block**, 1-3 lines, in spoken order, one block per sentence
-  or clause.
+The look: bold all-caps Montserrat, white with a thick black outline, and **one red highlight** per block (the
+punchline word or the product name). Text is uppercased automatically; write it in normal case.
+- `s` a white line. Wrap one word in stars to make it the red highlight inside the line: `s | just got *easier* | 3`.
+- `h` a whole red line, for a name (products, models, people), usually with its logo: `h | Claude Code | 2 | claude`.
+- `c` is treated as `h` (no script font in this look).
+- **One highlight per block**, 1-3 lines, in spoken order, one block per sentence or clause. Keep lines to 3-4
+  words: the text is big and lines shrink to fit 880 px.
 - Display text is where spelling and grammar get fixed (check `$SK/assets/glossary.txt` and
   `~/.config/long-to-shorts/glossary.txt`: Whisper hears "chatGBD", "Grogbot", "cloud code"). Fix, never rewrite.
   The word count keeps it in sync with the audio: count spoken words exactly as they appear in `words_cut.json`,
   including ones the clean text drops. `captions.py list` must consume every word.
 - Logos: `assets/logos/<name>.svg` (openai, claude, grok bundled). For another brand, download its SVG from
   `https://svgl.app` into `$W/<id>/logos/<name>.svg`. Use a logo only when the line names that product.
-- Hero lines shrink to fit the band; small words never shrink (they become unreadable), so split long blocks.
+- Red `h` lines shrink to fit the band; white lines never shrink (they become unreadable), so split long blocks.
+- To change the look, override keys from `$SK/assets/caption-settings.json` in `~/.config/long-to-shorts/settings.json`
+  (e.g. `"hTop"`/`"hBot"` for the highlight colour, `"fontText"`, `"sizeS"`).
 
 ## Rules that came from real runs
 
@@ -211,10 +218,8 @@ style | display text (the CLEAN wording) | number of spoken words it covers | op
 
 - Long-form framing puts the head near the top of a 9:16 crop, so face-layout captions go in the lower third
   (y 1140-1440), not above the head as in phone clips. reframe.py sets this; don't move it back up.
-- In split layouts, captions sit above the seam (y 690-940, ending 20 px above it so a hero line never lands on
-  the head) on a 75% black backdrop, because white and blue words over a white board or a chat window were
-  unreadable with less. Still pick a screen box whose bottom edge is
-  empty-ish, so the backdrop hides nothing important.
+- In split layouts, captions sit across the seam (y 830-1090), no box: the black outline keeps them readable over
+  white boards and chat windows. Pick a face box with some headroom so the bottom line doesn't sit on the eyes.
 - A face-cam bubble is often about 1.8:1; trimming it to the 1.125 face panel upscales it about 1.8x. Fine from a
   4K source, soft from 1080p: there, prefer a taller `top` (screen panel) so the face panel is smaller.
 - Shot detection decodes the whole 4K file twice at low res (about 1 min for a 5-minute video), once; it is

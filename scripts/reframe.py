@@ -97,7 +97,7 @@ if stills:
         print(f"{f}  {sh['start']:.2f}-{sh['end']:.2f}  {sh['layout']}")
     sys.exit()
 
-BAND = {"split": {"cy": 815, "safeTop": 690, "safeBot": 940, "backdropOpacity": 75},
+BAND = {"split": {"cy": 960, "safeTop": 830, "safeBot": 1090, "backdropOpacity": 0},
         "face": {"cy": 1290, "safeTop": 1140, "safeBot": 1440, "backdropOpacity": 0},
         "full": {"cy": 430, "safeTop": 260, "safeBot": 610, "backdropOpacity": 0}}
 bands, used = [], set()

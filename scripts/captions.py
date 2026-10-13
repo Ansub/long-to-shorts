@@ -37,7 +37,7 @@ SIZE = {"s": S["sizeS"], "h": S["sizeH"], "c": S["sizeC"]}
 # Per-shot caption bands (written by reframe.py for Shorts cut from a long video): [{start, end, cy, safeTop, safeBot,
 # backdropOpacity?}] in source.mov seconds. Mapped onto the cut timeline through segments.json; a block takes the band
 # of the shot it starts in. Without bands.json every block uses the settings above.
-BAND_KEYS = ("cy", "safeTop", "safeBot", "backdropOpacity")
+BAND_KEYS = ("cy", "safeTop", "safeBot", "backdropOpacity", "backdropStyle", "noScript")
 _bp, _sp = os.path.join(HERE, "bands.json"), os.path.join(HERE, "segments.json")
 BANDS = json.load(open(_bp, encoding="utf-8")) if os.path.exists(_bp) else []
 SEGS = json.load(open(_sp, encoding="utf-8")) if os.path.exists(_sp) and BANDS else []
@@ -109,8 +109,9 @@ def draw_text(d, x, baseline, txt, style, **kw):
         d.text((x + f.getlength(txt[:i]) + i * tr, baseline), ch, font=f, anchor="ls", **kw)
 
 
-def word_layers(txt, style, scale):
-    """Finished RGBA for one word at its final look, on a padded canvas. Returns (img, mask, xoff, baseline_y)."""
+def word_layers(txt, style, scale, hl=False):
+    """Finished RGBA for one word at its final look, on a padded canvas. Returns (img, mask, xoff, baseline_y).
+    hl: a highlighted word inside a small line (*word* in blocks.txt): small size, hero colours."""
     asc, desc, k1, bh = line_metrics(style)
     w = int(text_width(txt, style)) + 2 * PAD
     h = asc + desc + 2 * PAD
@@ -140,7 +141,7 @@ def word_layers(txt, style, scale):
             out.alpha_composite(l, off)
             k -= 1
 
-    if style == "s":
+    if style == "s" and not hl:
         if S["sShadowOpacity"] > 0:
             add(colored(m, S["sShadowColor"], S["sShadowBlur"]), S["sShadowOpacity"], (2, int(S["sShadowY"])))
         if S["sStroke"] > 0:
@@ -153,8 +154,9 @@ def word_layers(txt, style, scale):
             add(colored(m, S["bloomColor"], S["bloomBlur"]), S["bloomStrength"])
         if S["haloStrength"] > 0:
             add(colored(m, S["haloColor"], S["haloBlur"]), S["haloStrength"])
-        if S["rimWidth"] > 0:
-            add(colored(mask(thick + int(S["rimWidth"])), S["rimColor"], 0), 100)
+        rim = S["sStroke"] if hl else S["rimWidth"]  # a highlight keeps its line's outline weight
+        if rim > 0:
+            add(colored(mask(thick + int(rim)), S["sStrokeColor"] if hl else S["rimColor"], 0), 100)
         # vertical gradient over the LINE band (same as the tuner: line top -> line top + line height)
         top = base - asc * (1 - k1); bot = top + bh
         grad = Image.new("RGBA", (w, h))
@@ -216,11 +218,12 @@ def layout_line(L, fit=1.0):
     k = min(1.0, S["safeW"] / total) * fit
     L["k"], L["bh"] = k, bh * k
     x0 = (W - total * k) / 2
+    L["x0"], L["x1"] = x0, x0 + total * k  # ink extent of the line, for the caption box
     L["logo_img"] = logo_img(L["logo"], logo_h * k) if L["logo"] else None
     L["logo_x"] = x0
     x = x0 + logo_w * k
     for w, wd in zip(L["words"], widths):
-        w["img"], w["mask"], w["xoff"], w["base"] = word_layers(w["txt"], st, k)
+        w["img"], w["mask"], w["xoff"], w["base"] = word_layers(w["txt"], st, k, w.get("hl", False))
         w["x"] = x
         x += (wd + space) * k
     L["asc_off"] = asc * (1 - k1) * k  # line top -> baseline
@@ -249,18 +252,20 @@ def load_blocks():
         for L in b:
             ws = words[i:i + L["n"]]; i += L["n"]
             L["src"] = " ".join(w[2] for w in ws)
-            disp = L["text"].split()
-            L["words"] = [{"t": ws[min(len(ws) - 1, k * len(ws) // len(disp))][0], "txt": d} for k, d in enumerate(disp)]
+            disp = (L["text"].upper() if S.get("upper") else L["text"]).split()
+            L["words"] = [{"t": ws[min(len(ws) - 1, k * len(ws) // len(disp))][0], "txt": d.strip("*"),
+                           "hl": len(d) > 2 and d.startswith("*") and d.endswith("*")} for k, d in enumerate(disp)]
             L["t0"], L["t1"] = ws[0][0], ws[-1][1]
     assert i == len(words), f"blocks consume {i} of {len(words)} words"
     for k, b in enumerate(blocks):
         nxt = blocks[k + 1][0]["t0"] if k + 1 < len(blocks) else b[-1]["t1"] + 0.8
         b_end = nxt if nxt - b[-1]["t1"] <= 0.5 else b[-1]["t1"] + 0.5
-        for L in b:
-            L["block_end"] = b_end
-            layout_line(L)
         B = band_at(b[0]["t0"])
-        for L in b: L["band"] = B
+        for L in b:
+            L["block_end"] = b_end; L["band"] = B
+            if (B.get("noScript") or S.get("noScript")) and L["style"] == "c":  # no script font: use bold
+                L["style"] = "h"
+            layout_line(L)
         total = sum(L["bh"] for L in b) + S["gap"] * (len(b) - 1)
         band = B["safeBot"] - B["safeTop"]
         if total > band:  # too tall for the space above the head: shrink only the hero lines, small words keep their size
@@ -271,7 +276,7 @@ def load_blocks():
                 if L["style"] != "s":
                     layout_line(L, fit)
             total = sum(L["bh"] for L in b) + S["gap"] * (len(b) - 1)
-            if total > band:  # small words never shrink, so the block itself is too long: split it in blocks.txt
+            if total > band + 0.5:  # small words never shrink, so the block itself is too long: split it in blocks.txt
                 print(f"WARN block {k} ('{b[0]['text']}' ...) is {total}px tall, the band is {band}px: split it", file=sys.stderr)
         y = round(B["cy"] - total / 2)
         y = max(B["safeTop"], min(y, B["safeBot"] - total))
@@ -304,23 +309,33 @@ def draw_word(out, w, L, age, fade):
 
 
 def backdrop(b):
-    """Full-width dark scrim behind a block, feathered top and bottom: keeps captions readable over screen recordings.
-    backdropOpacity 0 = off (default for face shots); reframe.py turns it on for split layouts."""
+    """Dark backdrop behind a block so captions read over screen recordings. backdropOpacity 0 = off (face shots).
+    backdropStyle "box" (split shots): a rounded rectangle hugging the text; "scrim": a full-width feathered band."""
     if "scrim" not in b[0]:
-        op = b[0]["band"].get("backdropOpacity", S.get("backdropOpacity", 0)) if "band" in b[0] else S.get("backdropOpacity", 0)
+        B = b[0].get("band", {})
+        op = B.get("backdropOpacity", S.get("backdropOpacity", 0))
         if op <= 0: b[0]["scrim"] = None; return None
+        if B.get("backdropStyle", S.get("backdropStyle", "scrim")) == "box":
+            px, py, r = S.get("boxPadX", 40), S.get("boxPadY", 26), S.get("boxRadius", 28)
+            x0 = min(L["x0"] for L in b) - px; x1 = max(L["x1"] for L in b) + px
+            y0 = b[0]["y"] - py; y1 = b[-1]["y"] + b[-1]["bh"] + py
+            im = Image.new("RGBA", (int(x1 - x0), int(y1 - y0)), (0, 0, 0, 0))
+            ImageDraw.Draw(im).rounded_rectangle([0, 0, im.width - 1, im.height - 1], radius=r,
+                                                 fill=rgb(S.get("backdropColor", "#000000")) + (int(255 * op / 100),))
+            b[0]["scrim"] = (im, y0, x0)
+            return b[0]["scrim"]
         pad = S.get("backdropPad", 50); y0 = b[0]["y"] - pad; y1 = b[-1]["y"] + b[-1]["bh"] + pad
         m = Image.new("L", (W, int(y1 - y0) + 2 * pad), 0)
         ImageDraw.Draw(m).rectangle([0, pad, W, m.height - pad], fill=int(255 * op / 100))
         m = m.filter(ImageFilter.GaussianBlur(pad / 2))
         im = Image.new("RGBA", m.size, rgb(S.get("backdropColor", "#000000")) + (0,)); im.putalpha(m)
-        b[0]["scrim"] = (im, y0 - pad)
+        b[0]["scrim"] = (im, y0 - pad, 0)
     return b[0]["scrim"]
 
 
 def draw_block(out, b, t, fade=1.0):
     sc = backdrop(b)
-    if sc: paste(out, sc[0], 0, sc[1], min(1.0, (t - b[0]["t0"] + 0.04) / 0.12) * fade)
+    if sc: paste(out, sc[0], sc[2], sc[1], min(1.0, (t - b[0]["t0"] + 0.04) / 0.12) * fade)
     for L in b:
         if L["logo_img"] is not None and t >= L["t0"] - 0.04:
             age = t - (L["t0"] - 0.04)
